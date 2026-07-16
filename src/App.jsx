@@ -19,18 +19,23 @@ const App = () => {
           toastOptions={{
             duration: 3000,
             style: {
-              background: '#1a1a2e',
-              color: '#fff',
+              background: '#ffffff',
+              color: '#2a2019',
+              border: '1px solid #efe1cb',
             },
             success: {
               className: 'toast-success',
               iconTheme: {
-                primary: '#4ecdc4',
+                primary: '#2f9e52',
                 secondary: '#fff',
               },
             },
             error: {
               className: 'toast-error',
+              iconTheme: {
+                primary: '#d6412c',
+                secondary: '#fff',
+              },
             },
           }}
         />

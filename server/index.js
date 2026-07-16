@@ -3,6 +3,8 @@ import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 
 dotenv.config();
 
@@ -19,6 +21,52 @@ const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/pizzaa
 mongoose.connect(MONGODB_URI)
   .then(() => console.log('✅ Connected to MongoDB'))
   .catch((err) => console.error('❌ MongoDB connection error:', err));
+
+// Auth config
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.warn('⚠️  JWT_SECRET is not set. Set it in your environment for production use.');
+}
+const EFFECTIVE_JWT_SECRET = JWT_SECRET || 'dev-only-insecure-secret-change-me';
+const JWT_EXPIRES_IN = '7d';
+
+// User Schema
+const userSchema = new mongoose.Schema({
+  name: { type: String, required: true, trim: true },
+  email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+  passwordHash: { type: String, required: true },
+  createdAt: { type: Date, default: Date.now }
+});
+
+const User = mongoose.model('User', userSchema);
+
+function signToken(user) {
+  return jwt.sign({ userId: user._id }, EFFECTIVE_JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+}
+
+function publicUser(user) {
+  return { id: user._id, name: user.name, email: user.email };
+}
+
+// Auth middleware — attaches req.user if a valid token is present, else 401
+async function requireAuth(req, res, next) {
+  try {
+    const header = req.headers.authorization || '';
+    const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+    if (!token) {
+      return res.status(401).json({ success: false, message: 'Not authenticated' });
+    }
+    const decoded = jwt.verify(token, EFFECTIVE_JWT_SECRET);
+    const user = await User.findById(decoded.userId);
+    if (!user) {
+      return res.status(401).json({ success: false, message: 'Not authenticated' });
+    }
+    req.user = user;
+    next();
+  } catch (error) {
+    return res.status(401).json({ success: false, message: 'Invalid or expired session' });
+  }
+}
 
 // Order Schema
 const orderSchema = new mongoose.Schema({
@@ -88,6 +136,68 @@ const pizzas = [
     sizes: { S: 320, M: 420, L: 520 }
   }
 ];
+
+// Auth Routes
+app.post('/api/auth/signup', async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, message: 'Name is required' });
+    }
+    if (!email || !/^\S+@\S+\.\S+$/.test(email)) {
+      return res.status(400).json({ success: false, message: 'A valid email is required' });
+    }
+    if (!password || password.length < 6) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
+    }
+
+    const existing = await User.findOne({ email: email.toLowerCase().trim() });
+    if (existing) {
+      return res.status(409).json({ success: false, message: 'An account with this email already exists' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    const user = new User({ name: name.trim(), email: email.toLowerCase().trim(), passwordHash });
+    await user.save();
+
+    const token = signToken(user);
+    res.status(201).json({ success: true, token, user: publicUser(user) });
+  } catch (error) {
+    console.error('Signup error:', error);
+    res.status(500).json({ success: false, message: 'Failed to create account' });
+  }
+});
+
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ success: false, message: 'Email and password are required' });
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    if (!user) {
+      return res.status(401).json({ success: false, message: 'Invalid email or password' });
+    }
+
+    const matches = await bcrypt.compare(password, user.passwordHash);
+    if (!matches) {
+      return res.status(401).json({ success: false, message: 'Invalid email or password' });
+    }
+
+    const token = signToken(user);
+    res.json({ success: true, token, user: publicUser(user) });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ success: false, message: 'Failed to log in' });
+  }
+});
+
+app.get('/api/auth/me', requireAuth, async (req, res) => {
+  res.json({ success: true, user: publicUser(req.user) });
+});
 
 // Routes
 app.get('/api/pizzas', (req, res) => {
