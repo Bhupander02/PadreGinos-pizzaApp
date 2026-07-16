@@ -2,6 +2,7 @@ import { useState, useContext } from "react";
 import { X, User, Mail, Lock } from "lucide-react";
 import toast from "react-hot-toast";
 import { AuthContext } from "../contexts";
+import { createPortal } from "react-dom";
 
 export default function AuthModal({ onClose }) {
   const [{ }, { login, signup }] = useContext(AuthContext);
@@ -46,7 +47,7 @@ export default function AuthModal({ onClose }) {
     }
   }
 
-  return (
+  return createPortal(
     <div className="auth-overlay" onClick={onClose}>
       <div className="auth-modal" onClick={(e) => e.stopPropagation()}>
         <button className="auth-close" onClick={onClose} aria-label="Close">
@@ -134,6 +135,7 @@ export default function AuthModal({ onClose }) {
           )}
         </p>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
